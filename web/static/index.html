@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kodi Kronicles</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" type="image/png" href="/favicon.png">
+</head>
+<body>
+  <div class="bg"></div>
+  <header class="top">
+    <div class="brand">
+      <a href="/" class="logo-link">
+        <img class="logo" src="/logo.png" alt="Kodi Kronicles">
+      </a>
+      <h1 class="sr-only">Kodi Kronicles</h1>
+    </div>
+    <div class="top-actions">
+      <button class="btn" id="scanBtn" type="button">Find Kodi</button>
+      <a class="btn" id="exportBtn" href="/api/export.json">Export JSON</a>
+      <div class="status" id="status">
+        <span class="dot"></span>
+        <span id="statusText">connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="discover" id="discover" hidden>
+    <div class="discover-head">
+      <strong id="discoverTitle">Looking for Kodi…</strong>
+      <span id="discoverHint"></span>
+    </div>
+    <div class="discover-list" id="discoverList"></div>
+    <form class="discover-form" id="targetForm">
+      <input id="kodiHost" placeholder="host or IP" autocomplete="off">
+      <input id="kodiPort" placeholder="8080" inputmode="numeric">
+      <input id="kodiUser" placeholder="user">
+      <input id="kodiPass" placeholder="password" type="password">
+      <button type="submit">Use this box</button>
+    </form>
+  </section>
+
+  <section class="now" id="nowCard">
+    <div class="now-art" id="nowArt"></div>
+    <div class="now-body">
+      <div class="eyebrow" id="nowEyebrow">Nothing playing</div>
+      <h2 id="nowTitle">Idle</h2>
+      <p class="now-meta" id="nowMeta"></p>
+      <div class="progress">
+        <div class="bar" id="nowBar"></div>
+      </div>
+      <div class="now-times">
+        <span id="nowPos">0:00</span>
+        <span id="nowState"></span>
+        <span id="nowDur">0:00</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="heat-wrap">
+    <div class="heat-head">
+      <h3>Year</h3>
+      <span id="heatLegend">watch time</span>
+    </div>
+    <div class="heat" id="heat"></div>
+  </section>
+
+  <section class="toolbar">
+    <input id="search" type="search" placeholder="Search title, show, file, URL…" autocomplete="off">
+    <select id="box">
+      <option value="all">All boxes</option>
+    </select>
+    <select id="kind">
+      <option value="all">All kinds</option>
+      <option value="movie">Movies</option>
+      <option value="episode">Episodes</option>
+      <option value="youtube">YouTube</option>
+      <option value="iptv">IPTV / Live</option>
+      <option value="plugin">Plugins</option>
+      <option value="web">Web</option>
+      <option value="idle">Idle</option>
+      <option value="musicvideo">Music videos</option>
+      <option value="video">Other video</option>
+    </select>
+    <input id="from" type="date">
+    <input id="to" type="date">
+    <select id="view">
+      <option value="timeline" selected>Timeline</option>
+      <option value="series">Series rollup</option>
+    </select>
+  </section>
+
+  <section class="log" id="log"></section>
+  <div class="pager" id="pager" hidden>
+    <button id="prevPage" type="button">Newer</button>
+    <span id="pageLabel">Page 1</span>
+    <button id="nextPage" type="button">Older</button>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

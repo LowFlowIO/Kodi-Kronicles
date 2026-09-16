@@ -1,0 +1,4 @@
+/data/
+*.db
+kodi-kronicles
+.DS_Store
