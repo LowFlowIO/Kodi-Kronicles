@@ -41,3 +41,11 @@ Open http://localhost:8088, tap **Find Kodi**, pick your kodi box. That box is s
 | `-poster-max-w` | `400` | Max stored poster width |
 | `-poster-max-h` | `600` | Max stored poster height |
 | `-poster-quality` | `82` | JPEG quality |
+
+
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/first_run.png" alt="Kodi Kronicles Screenshot, First Run" width="">
+</p>
+
