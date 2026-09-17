@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ type Watch struct {
 	StartedAt       time.Time  `json:"started_at"`
 	EndedAt         *time.Time `json:"ended_at,omitempty"`
 	WatchedSeconds  int        `json:"watched_seconds"`
+	PausedSeconds   int        `json:"paused_seconds"`
 	PositionSeconds int        `json:"position_seconds"`
 	RuntimeSeconds  int        `json:"runtime_seconds"`
 	ProgressPercent float64    `json:"progress_percent"`
@@ -143,6 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_idle_started ON idle_periods(started_at DESC);
 		`ALTER TABLE watches ADD COLUMN box_host TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE watches ADD COLUMN box_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE watches ADD COLUMN box_port INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE watches ADD COLUMN paused_seconds INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE idle_periods ADD COLUMN box_host TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE idle_periods ADD COLUMN box_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE idle_periods ADD COLUMN box_port INTEGER NOT NULL DEFAULT 0`,
@@ -252,13 +255,14 @@ func (s *Store) UpdateWatch(w *Watch) error {
 UPDATE watches SET
   ended_at = ?,
   watched_seconds = ?,
+  paused_seconds = ?,
   position_seconds = ?,
   runtime_seconds = ?,
   progress_percent = ?,
   completed = ?,
   active = ?
 WHERE id = ?
-`, ended, w.WatchedSeconds, w.PositionSeconds, w.RuntimeSeconds, w.ProgressPercent, completed, active, w.ID)
+`, ended, w.WatchedSeconds, w.PausedSeconds, w.PositionSeconds, w.RuntimeSeconds, w.ProgressPercent, completed, active, w.ID)
 	return err
 }
 
@@ -314,7 +318,7 @@ func (s *Store) DeleteIdle(id int64) error {
 
 func (s *Store) ActiveWatch() (*Watch, error) {
 	row := s.db.QueryRow(`
-SELECT w.id, w.media_id, w.started_at, w.ended_at, w.watched_seconds, w.position_seconds,
+SELECT w.id, w.media_id, w.started_at, w.ended_at, w.watched_seconds, w.paused_seconds, w.position_seconds,
        w.runtime_seconds, w.progress_percent, w.player_type, w.completed, w.active,
        w.box_host, w.box_name, w.box_port
 FROM watches w WHERE w.active = 1 ORDER BY w.id DESC LIMIT 1`)
@@ -421,7 +425,7 @@ func (s *Store) ListWatches(f ListFilter) ([]Watch, int, error) {
 		qargs := append([]any{}, args...)
 		qargs = append(qargs, f.Limit+f.Offset)
 		rows, err := s.db.Query(`
-SELECT w.id, w.media_id, w.started_at, w.ended_at, w.watched_seconds, w.position_seconds,
+SELECT w.id, w.media_id, w.started_at, w.ended_at, w.watched_seconds, w.paused_seconds, w.position_seconds,
        w.runtime_seconds, w.progress_percent, w.player_type, w.completed, w.active,
        w.box_host, w.box_name, w.box_port,
        m.id, m.kind, m.title, m.show_title, m.season, m.episode, m.year, m.file, m.source_url,
@@ -690,6 +694,178 @@ FROM idle_periods WHERE active = 0 GROUP BY substr(started_at,1,10)`)
 	return out, nil
 }
 
+
+type HeatBucket struct {
+	Key             string `json:"key"`
+	Label           string `json:"label"`
+	WatchedSeconds  int    `json:"watched_seconds"`
+	IdleSeconds     int    `json:"idle_seconds"`
+}
+
+func (s *Store) HeatmapRange(kind string) (string, []HeatBucket, error) {
+	now := time.Now()
+	var from, to time.Time
+	switch kind {
+	case "today":
+		from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		to = from.Add(24 * time.Hour)
+	case "week":
+		wd := int(now.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(wd - 1))
+		to = from.AddDate(0, 0, 7)
+	case "month":
+		from = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		to = from.AddDate(0, 1, 0)
+	default:
+		days, err := s.Heatmap(365)
+		if err != nil {
+			return "year", nil, err
+		}
+		out := make([]HeatBucket, 0, len(days))
+		for _, d := range days {
+			out = append(out, HeatBucket{Key: d.Date, Label: d.Date, WatchedSeconds: d.WatchedSeconds, IdleSeconds: d.IdleSeconds})
+		}
+		return "year", out, nil
+	}
+
+	watch, err := s.sumByStarted(from, to, false)
+	if err != nil {
+		return kind, nil, err
+	}
+	idle, err := s.sumByStarted(from, to, true)
+	if err != nil {
+		return kind, nil, err
+	}
+
+	switch kind {
+	case "today":
+		out := make([]HeatBucket, 24)
+		for h := 0; h < 24; h++ {
+			out[h] = HeatBucket{Key: fmt.Sprintf("%02d", h), Label: fmt.Sprintf("%02d:00", h)}
+		}
+		add := func(m map[string]int, idle bool) {
+			for k, n := range m {
+				if i := atoiSafe(k); i >= 0 && i < 24 {
+					if idle {
+						out[i].IdleSeconds += n
+					} else {
+						out[i].WatchedSeconds += n
+					}
+				}
+			}
+		}
+		add(watch, false)
+		add(idle, true)
+		return "today", out, nil
+	case "week":
+		out := make([]HeatBucket, 7*24)
+		names := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+		for d := 0; d < 7; d++ {
+			for h := 0; h < 24; h++ {
+				i := d*24 + h
+				out[i] = HeatBucket{Key: fmt.Sprintf("%d-%02d", d, h), Label: fmt.Sprintf("%s %02d:00", names[d], h)}
+			}
+		}
+		for k, n := range watch {
+			if i := weekHourIndex(k); i >= 0 {
+				out[i].WatchedSeconds += n
+			}
+		}
+		for k, n := range idle {
+			if i := weekHourIndex(k); i >= 0 {
+				out[i].IdleSeconds += n
+			}
+		}
+		return "week", out, nil
+	default:
+		days := int(to.Sub(from).Hours() / 24)
+		if days < 1 {
+			days = 1
+		}
+		out := make([]HeatBucket, days)
+		for i := 0; i < days; i++ {
+			d := from.AddDate(0, 0, i)
+			key := d.Format("2006-01-02")
+			out[i] = HeatBucket{Key: key, Label: d.Format("2 Jan"), WatchedSeconds: watch[key], IdleSeconds: idle[key]}
+		}
+		return "month", out, nil
+	}
+}
+
+func atoiSafe(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+func weekHourIndex(key string) int {
+	// d-hh
+	parts := strings.Split(key, "-")
+	if len(parts) != 2 {
+		return -1
+	}
+	d, h := atoiSafe(parts[0]), atoiSafe(parts[1])
+	if d < 0 || d > 6 || h < 0 || h > 23 {
+		return -1
+	}
+	return d*24 + h
+}
+
+func (s *Store) sumByStarted(from, to time.Time, idle bool) (map[string]int, error) {
+	q := `SELECT started_at, watched_seconds FROM watches WHERE active = 0 AND started_at >= ? AND started_at < ?`
+	if idle {
+		q = `SELECT started_at, duration_seconds FROM idle_periods WHERE active = 0 AND started_at >= ? AND started_at < ?`
+	}
+	rows, err := s.db.Query(q, from.UTC().Format(time.RFC3339Nano), to.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	loc := from.Location()
+	for rows.Next() {
+		var raw string
+		var n int
+		if rows.Scan(&raw, &n) != nil {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, raw)
+			if err != nil {
+				continue
+			}
+		}
+		t = t.In(loc)
+		kind := "month"
+		if to.Sub(from) <= 24*time.Hour+time.Minute {
+			kind = "today"
+		} else if to.Sub(from) <= 8*24*time.Hour {
+			kind = "week"
+		}
+		var key string
+		switch kind {
+		case "today":
+			key = fmt.Sprintf("%02d", t.Hour())
+		case "week":
+			wd := int(t.Weekday())
+			if wd == 0 {
+				wd = 7
+			}
+			key = fmt.Sprintf("%d-%02d", wd-1, t.Hour())
+		default:
+			key = t.Format("2006-01-02")
+		}
+		out[key] += n
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListIdleAll() ([]IdlePeriod, error) {
 	rows, err := s.db.Query(`
 SELECT id, started_at, ended_at, duration_seconds, active
@@ -795,7 +971,7 @@ func scanWatch(row scanner) (*Watch, error) {
 	var w Watch
 	var started, ended sql.NullString
 	var completed, active int
-	if err := row.Scan(&w.ID, &w.MediaID, &started, &ended, &w.WatchedSeconds, &w.PositionSeconds, &w.RuntimeSeconds, &w.ProgressPercent, &w.PlayerType, &completed, &active, &w.BoxHost, &w.BoxName, &w.BoxPort); err != nil {
+	if err := row.Scan(&w.ID, &w.MediaID, &started, &ended, &w.WatchedSeconds, &w.PausedSeconds, &w.PositionSeconds, &w.RuntimeSeconds, &w.ProgressPercent, &w.PlayerType, &completed, &active, &w.BoxHost, &w.BoxName, &w.BoxPort); err != nil {
 		return nil, err
 	}
 	if t, err := time.Parse(time.RFC3339Nano, started.String); err == nil {
@@ -819,7 +995,7 @@ func scanWatchJoin(rows *sql.Rows) (*Watch, error) {
 	var season, episode, year sql.NullInt64
 	var completed, active int
 	if err := rows.Scan(
-		&w.ID, &w.MediaID, &started, &endedNull, &w.WatchedSeconds, &w.PositionSeconds,
+		&w.ID, &w.MediaID, &started, &endedNull, &w.WatchedSeconds, &w.PausedSeconds, &w.PositionSeconds,
 		&w.RuntimeSeconds, &w.ProgressPercent, &w.PlayerType, &completed, &active,
 		&w.BoxHost, &w.BoxName, &w.BoxPort,
 		&m.ID, &m.Kind, &m.Title, &m.ShowTitle, &season, &episode, &year, &m.File, &m.SourceURL,

@@ -3,3 +3,4 @@
 *.db
 /kodi-kronicles
 .DS_Store
+build.sh

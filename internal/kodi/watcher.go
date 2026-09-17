@@ -31,6 +31,7 @@ type NowPlaying struct {
 	Runtime         int          `json:"runtime_seconds"`
 	Speed           int          `json:"speed"`
 	WatchedSeconds  int          `json:"watched_seconds"`
+	PausedSeconds   int          `json:"paused_seconds"`
 	IdleSeconds     int          `json:"idle_seconds"`
 	ProgressPercent float64      `json:"progress_percent"`
 	StartedAt       string       `json:"started_at,omitempty"`
@@ -370,6 +371,8 @@ func (w *Watcher) poll(ctx context.Context) {
 		sess.watch.WatchedSeconds += posDelta
 	case speed != 0 && wall > 0 && wall < 30:
 		sess.watch.WatchedSeconds += wall
+	case speed == 0 && wall > 0 && wall < 30:
+		sess.watch.PausedSeconds += wall
 	}
 	sess.lastTick = now
 	if pos > 0 {
@@ -400,6 +403,7 @@ func (w *Watcher) poll(ctx context.Context) {
 		Runtime:         runtime,
 		Speed:           speed,
 		WatchedSeconds:  sess.watch.WatchedSeconds,
+		PausedSeconds:   sess.watch.PausedSeconds,
 		ProgressPercent: sess.watch.ProgressPercent,
 		StartedAt:       sess.watch.StartedAt.Format(time.RFC3339),
 		BoxHost:         sess.watch.BoxHost,
@@ -476,11 +480,18 @@ func (w *Watcher) finishLocked(reason string) {
 	if runtime := sess.watch.RuntimeSeconds; runtime > 0 && sess.watch.WatchedSeconds > runtime {
 		sess.watch.WatchedSeconds = runtime
 	}
-	if sess.watch.WatchedSeconds < w.cfg.MinWatchSecs {
+	rules := config.LoadIgnore(w.client.Config().DataDir)
+	title, show, file, src := "", "", "", ""
+	kind := ""
+	if sess.media != nil {
+		title, show, file, src = sess.media.Title, sess.media.ShowTitle, sess.media.File, sess.media.SourceURL
+		kind = sess.media.Kind
+	}
+	if skip, why := rules.Skip(kind, title, show, file, src, sess.watch.WatchedSeconds, w.cfg.MinWatchSecs); skip {
 		if err := w.store.DeleteWatch(sess.watch.ID); err != nil {
-			log.Printf("drop short watch: %v", err)
+			log.Printf("drop ignored watch: %v", err)
 		} else {
-			log.Printf("ignored short play (%ds) of %s", sess.watch.WatchedSeconds, store.DisplayTitle(sess.media))
+			log.Printf("ignored %s (%ds): %s", store.DisplayTitle(sess.media), sess.watch.WatchedSeconds, why)
 		}
 		return
 	}

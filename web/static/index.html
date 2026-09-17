@@ -16,12 +16,34 @@
       </a>
       <h1 class="sr-only">Kodi Kronicles</h1>
     </div>
-    <div class="top-actions">
-      <button class="btn" id="scanBtn" type="button">Find Kodi</button>
-      <a class="btn" id="exportBtn" href="/api/export.json">Export JSON</a>
+            <div class="top-actions">
       <div class="status" id="status">
         <span class="dot"></span>
         <span id="statusText">connecting…</span>
+      </div>
+      <div class="menu" id="appMenu">
+        <button class="btn menu-toggle" id="menuBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Menu"><span class="burger" aria-hidden="true"></span></button>
+        <div class="menu-pop" id="menuPop" hidden>
+          <label class="menu-item switch">
+            <span>Wide posters</span>
+            <span class="switch-ctl">
+              <input type="checkbox" id="wideToggle" checked>
+              <span class="knob"></span>
+            </span>
+          </label>
+          <label class="menu-item switch">
+            <span>Light mode</span>
+            <span class="switch-ctl">
+              <input type="checkbox" id="lightToggle">
+              <span class="knob"></span>
+            </span>
+          </label>
+          <div class="menu-sep"></div>
+          <button class="menu-item" id="ignoreBtn" type="button">Ignore rules</button>
+          <a class="menu-item" id="backupBtn" href="/api/backup.zip">Full backup</a>
+          <a class="menu-item" id="exportBtn" href="/api/export.json">Export JSON</a>
+          <button class="menu-item" id="scanBtn" type="button">Find Kodi</button>
+        </div>
       </div>
     </div>
   </header>
@@ -30,6 +52,7 @@
     <div class="discover-head">
       <strong id="discoverTitle">Looking for Kodi…</strong>
       <span id="discoverHint"></span>
+      <button class="btn discover-close" id="discoverClose" type="button" aria-label="Close">Close</button>
     </div>
     <div class="discover-list" id="discoverList"></div>
     <form class="discover-form" id="targetForm">
@@ -38,6 +61,22 @@
       <input id="kodiUser" placeholder="user">
       <input id="kodiPass" placeholder="password" type="password">
       <button type="submit">Use this box</button>
+    </form>
+  </section>
+
+  <section class="ignore" id="ignorePanel" hidden>
+    <div class="discover-head">
+      <strong>Skip / ignore</strong>
+      <span>Dropped at log time. Never sent to Kodi.</span>
+      <button class="btn discover-close" id="ignoreClose" type="button">Close</button>
+    </div>
+    <form class="discover-form" id="ignoreForm">
+      <input id="ignMin" placeholder="min seconds" inputmode="numeric">
+      <input id="ignKinds" placeholder="kinds to skip (youtube, plugin)">
+      <input id="ignTitle" placeholder="title contains (trailer)">
+      <input id="ignFile" placeholder="file contains (sample)">
+      <input id="ignPlugin" placeholder="plugin id contains">
+      <button type="submit">Save rules</button>
     </form>
   </section>
 
@@ -62,13 +101,23 @@
 
   <section class="heat-wrap">
     <div class="heat-head">
-      <h3>Year</h3>
+      <h3 id="heatTitle">Year</h3>
       <span id="heatLegend">watch time</span>
     </div>
-    <div class="heat" id="heat"></div>
+    <div class="heat-board">
+      <div class="heat-y" id="heatY"></div>
+      <div class="heat" id="heat"></div>
+      <div class="heat-x" id="heatX"></div>
+    </div>
   </section>
 
   <section class="toolbar">
+    <div class="range-chips" id="rangeChips">
+      <button type="button" class="chip on" data-range="all">All</button>
+      <button type="button" class="chip" data-range="today">Today</button>
+      <button type="button" class="chip" data-range="week">This week</button>
+      <button type="button" class="chip" data-range="month">This month</button>
+    </div>
     <input id="search" type="search" placeholder="Search title, show, file, URL…" autocomplete="off">
     <select id="box">
       <option value="all">All boxes</option>
@@ -99,6 +148,12 @@
     <span id="pageLabel">Page 1</span>
     <button id="nextPage" type="button">Older</button>
   </div>
+
+  <footer class="site-foot">
+    <a href="https://lowio.xyz" target="_blank" rel="noopener">lowio.xyz</a>
+    <span>·</span>
+    <a href="https://github.com/LowFlowIO/Kodi-Kronicles" target="_blank" rel="noopener">GitHub</a>
+  </footer>
 
   <script src="/app.js"></script>
 </body>

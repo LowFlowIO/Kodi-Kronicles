@@ -63,6 +63,28 @@ function posterUrl(media) {
   return "";
 }
 
+function artWide(kind) {
+  return ["youtube", "web", "iptv", "musicvideo", "plugin"].includes(String(kind || "").toLowerCase());
+}
+
+function applyArtShape(el, kind, url) {
+  const wide = artWide(kind);
+  el.classList.toggle("wide", wide);
+  if (kind) el.dataset.kind = kind;
+  else el.removeAttribute("data-kind");
+  if (!url || wide) return;
+  const img = new Image();
+  img.onload = () => {
+    if (img.naturalWidth > img.naturalHeight) el.classList.add("wide");
+  };
+  img.src = url;
+}
+
+function setFindKodiVisible(connected) {
+  const btn = $("scanBtn");
+  if (btn) btn.hidden = !!connected;
+}
+
 function setStatus(mode, text) {
   const el = $("status");
   el.className = "status " + mode;
@@ -71,8 +93,10 @@ function setStatus(mode, text) {
 
 function renderNow(now) {
   const card = $("nowCard");
+  setFindKodiVisible(now && now.connected);
   if (!now || !now.connected) {
     setStatus("bad", "Kodi offline");
+    setFindKodiVisible(false);
   } else if (now.playing) {
     setStatus("live", "Now playing");
   } else if (now.paused) {
@@ -101,6 +125,7 @@ function renderNow(now) {
   }
   card.classList.remove("idle");
   const media = now.media;
+  applyArtShape(card, media.kind, posterUrl(media));
   $("nowEyebrow").textContent = now.paused ? "Paused" : "Now playing";
   $("nowTitle").textContent = titleOf(media);
   const boxBit = now.box_name || now.box_host;
@@ -109,7 +134,10 @@ function renderNow(now) {
   $("nowBar").style.width = live ? "100%" : `${Math.min(100, now.progress_percent || 0)}%`;
   $("nowPos").textContent = fmtTime(now.watched_seconds || now.position_seconds);
   $("nowDur").textContent = live ? "LIVE" : fmtTime(now.runtime_seconds);
-  $("nowState").textContent = now.paused ? "paused" : (live ? `live · ${fmtTime(now.watched_seconds)}` : `watched ${fmtTime(now.watched_seconds)}`);
+  const pauseNow = now.paused_seconds ? ` · paused ${fmtTime(now.paused_seconds)}` : "";
+  $("nowState").textContent = now.paused
+    ? `paused${pauseNow}`
+    : (live ? `live · ${fmtTime(now.watched_seconds)}${pauseNow}` : `watched ${fmtTime(now.watched_seconds)}${pauseNow}`);
   const art = $("nowArt");
   art.textContent = "";
   const url = posterUrl(media);
@@ -151,13 +179,15 @@ function renderLog(reset) {
     const isIdle = m.kind === "idle";
     const boxLabel = w.box_name || w.box_host || "";
     const isLive = m.kind === "iptv";
+    const boxKey = w.box_host || w.box_name || "";
     const boxBit = boxLabel ? ` · ${escapeHtml(boxLabel)}` : "";
+    const pauseBit = !isIdle && w.paused_seconds ? ` · paused ${fmtTime(w.paused_seconds)}` : "";
     const subtitle = isIdle
       ? `${fmtWhen(w.started_at)} → ${fmtWhen(w.ended_at)} · nothing playing${boxBit}`
       : isLive
-        ? `${fmtWhen(w.started_at)} · live TV${boxBit}`
-        : `${fmtWhen(w.started_at)} · reached ${fmtTime(w.position_seconds)}${w.runtime_seconds ? " / " + fmtTime(w.runtime_seconds) : ""} ${w.completed ? " · finished" : ""}${boxBit}`;
-    return `<article class="card">
+        ? `${fmtWhen(w.started_at)} · live TV${boxBit}${pauseBit}`
+        : `${fmtWhen(w.started_at)} · reached ${fmtTime(w.position_seconds)}${w.runtime_seconds ? " / " + fmtTime(w.runtime_seconds) : ""} ${w.completed ? " · finished" : ""}${boxBit}${pauseBit}`;
+    return `<article class="card${artWide(m.kind) ? " wide" : ""}" data-kind="${escapeHtml(m.kind || "")}" style="border-left: 4px solid ${boxColor(boxKey || "none")}">
       <div class="poster ${isIdle ? "zzz" : art ? "" : "empty"}" style="${art ? `background-image:url('${art}')` : ""}">${isIdle ? "zzz" : ""}</div>
       <div>
         <h3>${escapeHtml(isIdle ? "Idle" : titleOf(m))}</h3>
@@ -168,6 +198,7 @@ function renderLog(reset) {
       <div class="right">
         <b>${fmtTime(w.watched_seconds)}</b>
         ${isIdle ? "idle" : "watched"}
+        ${!isIdle && w.paused_seconds ? `<div class="pause-note">paused ${fmtTime(w.paused_seconds)}</div>` : ""}
       </div>
     </article>`;
   }).join("");
@@ -179,6 +210,22 @@ function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   }[c]));
+}
+
+function ymd(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function boxHue(key) {
+  const s = String(key || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) % 360;
+  return h;
+}
+
+function boxColor(key) {
+  return `hsl(${boxHue(key)} 62% 52%)`;
 }
 
 function filters() {
@@ -271,34 +318,101 @@ async function loadSeries() {
   }).join("");
 }
 
+function heatLevel(n, max) {
+  if (!n) return "";
+  const r = n / Math.max(1, max);
+  return r < 0.25 ? "l1" : r < 0.5 ? "l2" : r < 0.75 ? "l3" : "l4";
+}
+
+function hourMarks() {
+  return [0,3,6,9,12,15,18,21].map((h) => `<span>${String(h).padStart(2,"0")}</span>`).join("");
+}
+
 async function loadHeat() {
-  const res = await fetch("/api/heatmap?days=365");
+  const range = document.querySelector("#rangeChips .chip.on")?.dataset.range || "all";
+  const res = await fetch("/api/heatmap?range=" + encodeURIComponent(range));
   const data = await res.json();
-  const days = data.items || [];
+  const items = data.items || [];
+  const mode = data.mode || range;
   const root = $("heat");
-  if (!days.length) {
+  const title = $("heatTitle");
+  const y = $("heatY");
+  const x = $("heatX");
+  const days = ["M","T","W","T","F","S","S"];
+  if (y) y.innerHTML = days.map((d) => `<span>${d}</span>`).join("");
+  if (x) x.innerHTML = "";
+  if (!items.length) {
     root.innerHTML = "";
+    root.className = "heat";
+    if (title) title.textContent = "Activity";
     return;
   }
-  const first = new Date(days[0].date + "T12:00:00Z");
-  const pad = first.getUTCDay();
-  const max = Math.max(1, ...days.map((d) => d.watched_seconds));
+  const max = Math.max(1, ...items.map((d) => d.watched_seconds));
   const cells = [];
-  for (let i = 0; i < pad; i++) cells.push("<i></i>");
-  let activeDays = 0;
-  for (const d of days) {
-    if (d.watched_seconds > 0) activeDays += 1;
-    let lvl = 0;
-    if (d.watched_seconds > 0) {
-      const r = d.watched_seconds / max;
-      lvl = r < 0.25 ? 1 : r < 0.5 ? 2 : r < 0.75 ? 3 : 4;
+  let lit = 0;
+  const cell = (d, extra) => {
+    if (d && d.watched_seconds > 0) lit += 1;
+    const tip = d
+      ? `${d.label || d.key || d.date}: ${fmtTime(d.watched_seconds)} watched` + (d.idle_seconds ? `, ${fmtTime(d.idle_seconds)} idle` : "")
+      : "";
+    return `<i class="${d ? heatLevel(d.watched_seconds, max) : ""}" title="${tip}">${extra || ""}</i>`;
+  };
+
+  if (mode === "year" || mode === "all") {
+    root.className = "heat heat-year";
+    if (title) title.textContent = "Year";
+    if (y) y.hidden = false;
+    const first = new Date((items[0].key || items[0].date) + "T12:00:00");
+    const pad = (first.getDay() + 6) % 7;
+    for (let i = 0; i < pad; i++) cells.push(cell(null));
+    items.forEach((d) => cells.push(cell(d)));
+    if (x) {
+      const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const months = [];
+      let last = "";
+      items.forEach((d, i) => {
+        const key = d.key || d.date || "";
+        const m = key.slice(0, 7);
+        if (m && m !== last) {
+          const week = Math.floor((pad + i) / 7) + 1;
+          const mon = names[Math.max(0, Number(key.slice(5, 7)) - 1)] || key.slice(5, 7);
+          months.push(`<span style="grid-column:${week}">${mon}</span>`);
+          last = m;
+        }
+      });
+      x.className = "heat-x heat-x-year";
+      x.innerHTML = months.join("");
     }
-    const tip = `${d.date}: ${fmtTime(d.watched_seconds)} watched` +
-      (d.idle_seconds ? `, ${fmtTime(d.idle_seconds)} idle` : "");
-    cells.push(`<i class="${lvl ? "l" + lvl : ""}" title="${tip}"></i>`);
+  } else if (mode === "today") {
+    root.className = "heat heat-hours";
+    if (title) title.textContent = "Today by hour";
+    if (y) y.hidden = true;
+    items.forEach((d) => cells.push(cell(d)));
+    if (x) { x.className = "heat-x heat-x-hours"; x.innerHTML = hourMarks(); }
+  } else if (mode === "week") {
+    root.className = "heat heat-week";
+    if (title) title.textContent = "This week by hour";
+    if (y) y.hidden = false;
+    items.forEach((d) => cells.push(cell(d)));
+    if (x) { x.className = "heat-x heat-x-hours"; x.innerHTML = hourMarks(); }
+  } else {
+    root.className = "heat heat-month";
+    if (title) title.textContent = "This month";
+    if (y) y.hidden = false;
+    const firstKey = items[0].key || items[0].date;
+    const first = new Date(firstKey + "T12:00:00");
+    const pad = (first.getDay() + 6) % 7;
+    for (let i = 0; i < pad; i++) cells.push(cell(null));
+    items.forEach((d) => {
+      const day = String((d.key || d.date || "").slice(-2)).replace(/^0/, "") || "";
+      cells.push(cell(d, day ? `<em>${day}</em>` : ""));
+    });
+    if (x) { x.className = "heat-x"; x.innerHTML = days.map((d) => `<span>${d}</span>`).join(""); }
   }
   root.innerHTML = cells.join("");
-  $("heatLegend").textContent = `${activeDays} day${activeDays === 1 ? "" : "s"} with playback`;
+  $("heatLegend").textContent = mode === "today" || mode === "week"
+    ? `${lit} hour${lit === 1 ? "" : "s"} with playback`
+    : `${lit} day${lit === 1 ? "" : "s"} with playback`;
 }
 
 async function refreshNow() {
@@ -389,11 +503,16 @@ function renderBoxes(items, target) {
   });
 }
 
-async function discoverKodi(forceOpen) {
+function closeDiscover() {
   const panel = $("discover");
+  if (panel) panel.hidden = true;
+}
+
+async function discoverKodi() {
+  const panel = $("discover");
+  panel.hidden = false;
   $("discoverTitle").textContent = "Looking for Kodi…";
   $("discoverHint").textContent = "SSDP + LAN scan on :8080";
-  if (forceOpen) panel.hidden = false;
   try {
     const data = await (await fetch("/api/discover")).json();
     const items = data.items || [];
@@ -411,15 +530,17 @@ async function discoverKodi(forceOpen) {
     $("discoverHint").textContent = live.length
       ? "Tap a chip, then Use this box"
       : (target.host ? `Still using ${target.host}:${target.port || 8080}` : "Enter the IP and port");
-    if (forceOpen || live.length || target.host) panel.hidden = false;
   } catch (err) {
     $("discoverTitle").textContent = "Discovery failed";
     $("discoverHint").textContent = String(err && err.message ? err.message : err);
-    panel.hidden = false;
   }
 }
 
-$("scanBtn").addEventListener("click", () => discoverKodi(true));
+$("scanBtn").addEventListener("click", () => discoverKodi());
+$("discoverClose").addEventListener("click", closeDiscover);
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeDiscover();
+});
 $("targetForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const body = {
@@ -440,6 +561,7 @@ $("targetForm").addEventListener("submit", async (ev) => {
   }
   $("kodiPass").value = "";
   $("discoverHint").textContent = "Switched. Polling the new box…";
+  closeDiscover();
   setTimeout(refreshNow, 500);
 });
 
@@ -465,5 +587,116 @@ loadWatches(false);
 loadHeat();
 connectSSE();
 loadTarget();
-discoverKodi(false);
 setInterval(refreshNow, 4000);
+
+function setRange(kind) {
+  document.querySelectorAll("#rangeChips .chip").forEach((b) => b.classList.toggle("on", b.dataset.range === kind));
+  const now = new Date();
+  if (kind === "today") {
+    $("from").value = ymd(now);
+    $("to").value = ymd(now);
+  } else if (kind === "week") {
+    const from = new Date(now);
+    from.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    $("from").value = ymd(from);
+    $("to").value = ymd(now);
+  } else if (kind === "month") {
+    $("from").value = ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+    $("to").value = ymd(now);
+  } else {
+    $("from").value = "";
+    $("to").value = "";
+  }
+  state.page = 1;
+  loadWatches(true);
+  loadHeat();
+}
+
+$("rangeChips") && $("rangeChips").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-range]");
+  if (btn) setRange(btn.dataset.range);
+});
+
+function csv(arr) { return (arr || []).join(", "); }
+function splitCSV(s) {
+  return String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+async function loadIgnore() {
+  try {
+    const r = await (await fetch("/api/ignore")).json();
+    $("ignMin").value = r.min_seconds || "";
+    $("ignKinds").value = csv(r.kinds);
+    $("ignTitle").value = csv(r.title_contains);
+    $("ignFile").value = csv(r.file_contains);
+    $("ignPlugin").value = csv(r.plugins);
+  } catch (_) {}
+}
+
+$("ignoreBtn") && $("ignoreBtn").addEventListener("click", () => {
+  const p = $("ignorePanel");
+  p.hidden = !p.hidden;
+  if (!p.hidden) loadIgnore();
+});
+$("ignoreClose") && $("ignoreClose").addEventListener("click", () => { $("ignorePanel").hidden = true; });
+$("ignoreForm") && $("ignoreForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = {
+    min_seconds: Number($("ignMin").value) || 0,
+    kinds: splitCSV($("ignKinds").value),
+    title_contains: splitCSV($("ignTitle").value),
+    file_contains: splitCSV($("ignFile").value),
+    plugins: splitCSV($("ignPlugin").value),
+  };
+  await fetch("/api/ignore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  $("ignorePanel").hidden = true;
+});
+
+(function prefs() {
+  const root = document.documentElement;
+  const wideOn = localStorage.getItem("kk-wide") !== "0";
+  const lightOn = localStorage.getItem("kk-light") === "1";
+  root.classList.toggle("narrow-art", !wideOn);
+  root.classList.toggle("light", lightOn);
+  const wideEl = document.getElementById("wideToggle");
+  const lightEl = document.getElementById("lightToggle");
+  if (wideEl) wideEl.checked = wideOn;
+  if (lightEl) lightEl.checked = lightOn;
+
+  const menu = document.getElementById("appMenu");
+  const btn = document.getElementById("menuBtn");
+  const pop = document.getElementById("menuPop");
+  function closeMenu() {
+    if (!pop || !btn) return;
+    pop.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  }
+  if (btn && pop) {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const open = pop.hidden;
+      pop.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("click", (ev) => {
+      if (menu && !menu.contains(ev.target)) closeMenu();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") closeMenu();
+    });
+  }
+  if (wideEl) {
+    wideEl.addEventListener("change", () => {
+      localStorage.setItem("kk-wide", wideEl.checked ? "1" : "0");
+      root.classList.toggle("narrow-art", !wideEl.checked);
+      if (typeof refreshNow === "function") refreshNow();
+      if (typeof loadWatches === "function") loadWatches(true);
+    });
+  }
+  if (lightEl) {
+    lightEl.addEventListener("change", () => {
+      localStorage.setItem("kk-light", lightEl.checked ? "1" : "0");
+      root.classList.toggle("light", lightEl.checked);
+    });
+  }
+})();
