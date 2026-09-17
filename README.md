@@ -50,6 +50,6 @@ Open http://localhost:8088, tap **Find Kodi**, pick your kodi box. That box is s
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/first_run.png" alt="Kodi Kronicles Screenshot, First Run" width="">
+  <img src="screenshots/latest.png" alt="Kodi Kronicles Screenshot" width="">
 </p>
 
