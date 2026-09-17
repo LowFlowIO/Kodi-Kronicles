@@ -1,0 +1,19 @@
+name: Purge README camo cache
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PURGE camo for embed.svg
+        run: |
+          set -e
+          PAGE="https://github.com/${GITHUB_REPOSITORY}"
+          html=$(curl -fsSL "$PAGE")
+          echo "$html" | grep -oE 'https://camo.githubusercontent.com/[a-z0-9]+' | sort -u | while read -r u; do
+            echo "PURGE $u"
+            curl -fsS -X PURGE "$u" || true
+          done
