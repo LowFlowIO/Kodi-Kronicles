@@ -6,7 +6,7 @@
    <img src="https://lowio.xyz/kron/embed.svg" alt="Now playing" width="520">
 </p>
 
-A small Go app that sits on your network and keeps a journal of everything you watched on kodi.
+A small Go app that sits on your network and keeps a journal of everything you watch on kodi.
 
 ## Build & Run
 
@@ -18,11 +18,6 @@ go build -o kodi-kronicles ./cmd/kodi-kronicles
 ```
 
 Open http://localhost:8088, tap **Find Kodi**, pick your kodi box. That box is saved in `data/kodi-targets.json` for the next start.
-
-```bash
-./kodi-kronicles -listen :8088 -data-dir ./data
-./kodi-kronicles -kodi-host 192.168.1.10 -kodi-user xbmc -kodi-pass secret
-```
 
 
 ## Flags
