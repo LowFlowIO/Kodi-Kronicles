@@ -6,7 +6,7 @@
    <img src="https://lowio.xyz/kron/embed.svg" alt="Now playing" width="520">
 </p>
 
-A small Go app that sits on your network and keeps a journal of everything you watch on kodi.
+A small Go webapp that sits on your network and keeps a journal of everything you watch on kodi.
 
 ## Build & Run
 
