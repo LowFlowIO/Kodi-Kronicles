@@ -2,6 +2,10 @@
   <img src="logo.png" alt="Kodi Kronicles" width="480">
 </p>
 
+<p align="center">
+   <img src="https://lowio.xyz/kron/embed.svg" alt="Now playing" width="520">
+</p>
+
 A small Go app that sits on your network and keeps a journal of everything you watched on kodi.
 
 ## Build & Run
